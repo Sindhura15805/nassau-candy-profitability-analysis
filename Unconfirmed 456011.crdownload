@@ -1,0 +1,24 @@
+
+import streamlit as st
+import pandas as pd
+
+df = pd.read_csv("Nassau_Candy_Cleaned.csv")
+
+st.title("Nassau Candy Distributor")
+st.header("Product Line Profitability & Margin Performance")
+
+st.write("### Key Performance Indicators")
+
+st.metric("Total Sales", round(df["Sales"].sum(), 2))
+st.metric("Total Cost", round(df["Cost"].sum(), 2))
+st.metric("Total Gross Profit", round(df["Gross Profit"].sum(), 2))
+
+division_profit = df.groupby("Division")["Gross Profit"].sum()
+
+st.subheader("Gross Profit by Division")
+st.bar_chart(division_profit)
+
+top_products = df.groupby("Product Name")["Sales"].sum().sort_values(ascending=False).head(10)
+
+st.subheader("Top 10 Products by Sales")
+st.bar_chart(top_products)
