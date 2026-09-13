@@ -1,21 +1,37 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
-# Load dataset
+# ---------------- PAGE SETUP ----------------
+
+st.set_page_config(
+    page_title="Nassau Candy Profitability",
+    page_icon="🍬",
+    layout="wide"
+)
+
+# ---------------- LOAD DATA ----------------
+
 df = pd.read_csv("Nassau_Candy_Cleaned.csv")
 
-# Convert date
 df["Order Date"] = pd.to_datetime(df["Order Date"], errors="coerce")
 
-# Title
-st.title("Nassau Candy Distributor")
+# ---------------- TITLE ----------------
+
+st.title("🍬 Nassau Candy Distributor")
 st.header("Product Line Profitability & Margin Performance Analysis")
 
-# ---------------- FILTERS ----------------
+st.write(
+    "Interactive analysis of product profitability, division performance, "
+    "cost structure and profit concentration."
+)
 
-st.sidebar.header("Filters")
+st.divider()
 
-# Date filter
+# ---------------- SIDEBAR ----------------
+
+st.sidebar.header("🔎 Filters")
+
 min_date = df["Order Date"].min().date()
 max_date = df["Order Date"].max().date()
 
@@ -24,82 +40,93 @@ date_range = st.sidebar.date_input(
     [min_date, max_date]
 )
 
-# Division filter
-divisions = ["All"] + sorted(df["Division"].dropna().unique().tolist())
+divisions = ["All"] + sorted(
+    df["Division"].dropna().unique().tolist()
+)
+
 selected_division = st.sidebar.selectbox(
     "Division",
     divisions
 )
 
-# Margin threshold
 margin_threshold = st.sidebar.slider(
-    "Minimum Margin (%)",
+    "Minimum Gross Margin (%)",
     0, 100, 20
 )
 
-# Product search
 product_search = st.sidebar.text_input(
     "Search Product"
 )
 
-# Apply date filter
+# ---------------- FILTER DATA ----------------
+
+filtered_df = df.copy()
+
 if len(date_range) == 2:
-    df = df[
-        (df["Order Date"].dt.date >= date_range[0]) &
-        (df["Order Date"].dt.date <= date_range[1])
+    filtered_df = filtered_df[
+        (filtered_df["Order Date"].dt.date >= date_range[0]) &
+        (filtered_df["Order Date"].dt.date <= date_range[1])
     ]
 
-# Apply division filter
 if selected_division != "All":
-    df = df[df["Division"] == selected_division]
+    filtered_df = filtered_df[
+        filtered_df["Division"] == selected_division
+    ]
 
-# Product search
 if product_search:
-    df = df[
-        df["Product Name"].str.contains(
+    filtered_df = filtered_df[
+        filtered_df["Product Name"].str.contains(
             product_search,
             case=False,
             na=False
         )
     ]
 
-# ---------------- KPI ----------------
+# ---------------- KPI CALCULATIONS ----------------
 
-total_sales = df["Sales"].sum()
-total_cost = df["Cost"].sum()
-total_profit = df["Gross Profit"].sum()
+total_sales = filtered_df["Sales"].sum()
+total_cost = filtered_df["Cost"].sum()
+total_profit = filtered_df["Gross Profit"].sum()
+total_units = filtered_df["Units"].sum()
 
-if total_sales != 0:
-    profit_margin = total_profit / total_sales * 100
-else:
-    profit_margin = 0
+profit_margin = (
+    total_profit / total_sales * 100
+    if total_sales != 0 else 0
+)
 
-st.subheader("Key Performance Indicators")
+# ---------------- KPI DISPLAY ----------------
 
-col1, col2, col3, col4 = st.columns(4)
+st.subheader("📊 Key Performance Indicators")
 
-col1.metric("Total Sales", round(total_sales, 2))
-col2.metric("Total Cost", round(total_cost, 2))
-col3.metric("Gross Profit", round(total_profit, 2))
-col4.metric("Profit Margin", f"{profit_margin:.2f}%")
+col1, col2, col3, col4, col5 = st.columns(5)
 
-# ---------------- PRODUCT PROFITABILITY ----------------
+col1.metric("Total Sales", f"${total_sales:,.2f}")
+col2.metric("Total Cost", f"${total_cost:,.2f}")
+col3.metric("Gross Profit", f"${total_profit:,.2f}")
+col4.metric("Gross Margin", f"{profit_margin:.2f}%")
+col5.metric("Total Units", f"{total_units:,.0f}")
 
-st.subheader("Product Profitability Overview")
+st.divider()
 
-product_analysis = df.groupby("Product Name").agg({
-    "Sales": "sum",
-    "Units": "sum",
-    "Gross Profit": "sum"
-})
+# =========================================================
+# PRODUCT PROFITABILITY
+# =========================================================
+
+st.header("1. Product Profitability Overview")
+
+product_analysis = filtered_df.groupby("Product Name").agg(
+    Sales=("Sales", "sum"),
+    Units=("Units", "sum"),
+    Gross_Profit=("Gross Profit", "sum")
+)
 
 product_analysis["Gross Margin (%)"] = (
-    product_analysis["Gross Profit"] /
+    product_analysis["Gross_Profit"] /
     product_analysis["Sales"] * 100
 )
 
 product_analysis["Profit per Unit"] = (
-    product_analysis["Gross Profit"] /
+    product_analysis["Gross_Profit"] /
     product_analysis["Units"]
 )
 
@@ -107,22 +134,31 @@ product_analysis = product_analysis.replace(
     [float("inf"), -float("inf")], 0
 ).fillna(0)
 
-filtered_products = product_analysis[
+leaderboard = product_analysis[
     product_analysis["Gross Margin (%)"] >= margin_threshold
-]
+].sort_values(
+    "Gross Margin (%)",
+    ascending=False
+).head(10)
 
-st.write("Product Margin Leaderboard")
+st.subheader("🏆 Product Margin Leaderboard")
+
 st.dataframe(
-    filtered_products.sort_values(
-        "Gross Margin (%)",
-        ascending=False
-    ).head(10)
+    leaderboard.style.format({
+        "Sales": "${:,.2f}",
+        "Gross_Profit": "${:,.2f}",
+        "Gross Margin (%)": "{:.2f}%",
+        "Profit per Unit": "${:,.2f}"
+    }),
+    use_container_width=True
 )
 
-st.write("Top 10 Products by Gross Profit")
+# Top products by profit
+
+st.subheader("Top 10 Products by Gross Profit")
 
 top_profit = (
-    df.groupby("Product Name")["Gross Profit"]
+    filtered_df.groupby("Product Name")["Gross Profit"]
     .sum()
     .sort_values(ascending=False)
     .head(10)
@@ -130,105 +166,263 @@ top_profit = (
 
 st.bar_chart(top_profit)
 
-# ---------------- DIVISION ----------------
+# =========================================================
+# DIVISION PERFORMANCE
+# =========================================================
 
-st.subheader("Division Performance Dashboard")
+st.header("2. Division Performance Dashboard")
 
-division_analysis = df.groupby("Division").agg({
-    "Sales": "sum",
-    "Gross Profit": "sum"
-})
+division_analysis = filtered_df.groupby("Division").agg(
+    Sales=("Sales", "sum"),
+    Cost=("Cost", "sum"),
+    Gross_Profit=("Gross Profit", "sum"),
+    Units=("Units", "sum")
+)
 
 division_analysis["Gross Margin (%)"] = (
-    division_analysis["Gross Profit"] /
+    division_analysis["Gross_Profit"] /
     division_analysis["Sales"] * 100
 )
 
-st.write("Revenue vs Profit")
+col1, col2 = st.columns(2)
 
-st.bar_chart(
-    division_analysis[["Sales", "Gross Profit"]]
+with col1:
+    st.subheader("Revenue vs Gross Profit")
+    st.bar_chart(
+        division_analysis[["Sales", "Gross_Profit"]]
+    )
+
+with col2:
+    st.subheader("Gross Margin by Division")
+    st.bar_chart(
+        division_analysis["Gross Margin (%)"]
+    )
+
+st.subheader("Division Performance Table")
+
+st.dataframe(
+    division_analysis.style.format({
+        "Sales": "${:,.2f}",
+        "Cost": "${:,.2f}",
+        "Gross_Profit": "${:,.2f}",
+        "Gross Margin (%)": "{:.2f}%"
+    }),
+    use_container_width=True
 )
 
-st.write("Margin by Division")
+# =========================================================
+# COST VS MARGIN
+# =========================================================
 
-st.bar_chart(
-    division_analysis["Gross Margin (%)"]
+st.header("3. Cost vs Margin Diagnostics")
+
+cost_margin = filtered_df.groupby("Product Name").agg(
+    Sales=("Sales", "sum"),
+    Cost=("Cost", "sum"),
+    Gross_Profit=("Gross Profit", "sum")
 )
-
-# ---------------- COST VS MARGIN ----------------
-
-st.subheader("Cost vs Margin Diagnostics")
-
-cost_margin = df.groupby("Product Name").agg({
-    "Sales": "sum",
-    "Cost": "sum",
-    "Gross Profit": "sum"
-})
 
 cost_margin["Margin (%)"] = (
-    cost_margin["Gross Profit"] /
+    cost_margin["Gross_Profit"] /
     cost_margin["Sales"] * 100
 )
 
-st.scatter_chart(
-    cost_margin[["Sales", "Cost"]]
+# Scatter plot
+
+fig, ax = plt.subplots(figsize=(9, 5))
+
+ax.scatter(
+    cost_margin["Sales"],
+    cost_margin["Cost"]
 )
 
-st.write("Margin Risk Products")
+ax.set_title("Cost vs Sales")
+ax.set_xlabel("Sales")
+ax.set_ylabel("Cost")
+
+st.pyplot(fig)
+
+# Risk products
+
+st.subheader("⚠️ Margin Risk Products")
 
 risk_products = cost_margin[
     cost_margin["Margin (%)"] < margin_threshold
+].sort_values(
+    "Margin (%)"
+)
+
+st.dataframe(
+    risk_products.head(10).style.format({
+        "Sales": "${:,.2f}",
+        "Cost": "${:,.2f}",
+        "Gross_Profit": "${:,.2f}",
+        "Margin (%)": "{:.2f}%"
+    }),
+    use_container_width=True
+)
+
+# =========================================================
+# HIGH SALES / LOW MARGIN
+# =========================================================
+
+st.subheader("High-Sales / Low-Margin Products")
+
+high_sales_low_margin = cost_margin[
+    (cost_margin["Sales"] >= cost_margin["Sales"].median()) &
+    (cost_margin["Margin (%)"] < cost_margin["Margin (%)"].median())
 ]
 
 st.dataframe(
-    risk_products.sort_values(
-        "Margin (%)"
-    ).head(10)
+    high_sales_low_margin.sort_values(
+        "Sales",
+        ascending=False
+    ).head(10).style.format({
+        "Sales": "${:,.2f}",
+        "Cost": "${:,.2f}",
+        "Gross_Profit": "${:,.2f}",
+        "Margin (%)": "{:.2f}%"
+    }),
+    use_container_width=True
 )
 
-# ---------------- PARETO ----------------
+# =========================================================
+# PROFIT CONCENTRATION
+# =========================================================
 
-st.subheader("Profit Concentration Analysis")
+st.header("4. Profit Concentration Analysis")
 
 pareto = (
-    df.groupby("Product Name")["Gross Profit"]
+    filtered_df.groupby("Product Name")["Gross Profit"]
     .sum()
     .sort_values(ascending=False)
 )
 
-cumulative_profit = (
-    pareto.cumsum() / pareto.sum() * 100
+if pareto.sum() != 0:
+
+    cumulative_profit = (
+        pareto.cumsum() /
+        pareto.sum() * 100
+    )
+
+    st.subheader("Pareto Analysis — Cumulative Profit")
+
+    st.line_chart(
+        cumulative_profit
+    )
+
+    products_80 = (
+        cumulative_profit <= 80
+    ).sum()
+
+    total_products = len(pareto)
+
+    st.metric(
+        "Products contributing up to 80% of profit",
+        products_80
+    )
+
+    st.write(
+        f"Total products analyzed: **{total_products}**"
+    )
+
+# =========================================================
+# MONTHLY MARGIN
+# =========================================================
+
+st.header("5. Monthly Margin Performance")
+
+monthly = filtered_df.groupby(
+    filtered_df["Order Date"].dt.to_period("M")
+).agg(
+    Sales=("Sales", "sum"),
+    Gross_Profit=("Gross Profit", "sum")
+)
+
+monthly["Profit Margin (%)"] = (
+    monthly["Gross_Profit"] /
+    monthly["Sales"] * 100
 )
 
 st.line_chart(
-    cumulative_profit.head(20)
+    monthly["Profit Margin (%)"]
 )
 
-products_80 = (cumulative_profit <= 80).sum()
+if not monthly.empty:
+    st.write(
+        "Highest Monthly Margin:",
+        f"{monthly['Profit Margin (%)'].max():.2f}%"
+    )
 
-st.write(
-    "Products contributing to approximately 80% of profit:",
-    products_80
-)
+    st.write(
+        "Lowest Monthly Margin:",
+        f"{monthly['Profit Margin (%)'].min():.2f}%"
+    )
 
-# ---------------- INSIGHTS ----------------
+    st.write(
+        "Average Monthly Margin:",
+        f"{monthly['Profit Margin (%)'].mean():.2f}%"
+    )
 
-st.subheader("Project Insights")
+# =========================================================
+# PROJECT INSIGHTS
+# =========================================================
+
+st.header("6. Project Insights")
 
 if not division_analysis.empty:
+    most_profitable_division = (
+        division_analysis["Gross_Profit"].idxmax()
+    )
+
     st.write(
-        "Most Profitable Division:",
-        division_analysis["Gross Profit"].idxmax()
+        "🏭 **Most Profitable Division:**",
+        most_profitable_division
     )
 
 if not top_profit.empty:
     st.write(
-        "Most Profitable Product:",
+        "🍫 **Most Profitable Product:**",
         top_profit.index[0]
     )
 
+if not product_analysis.empty:
+    highest_margin_product = (
+        product_analysis["Gross Margin (%)"].idxmax()
+    )
+
+    st.write(
+        "📈 **Highest Margin Product:**",
+        highest_margin_product
+    )
+
 st.write(
-    "Number of Margin Risk Products:",
+    "⚠️ **Margin Risk Products:**",
     len(risk_products)
+)
+
+# =========================================================
+# METHODOLOGY
+# =========================================================
+
+st.header("7. Methodology")
+
+st.write("""
+**Gross Profit = Sales − Cost**
+
+**Gross Margin (%) = Gross Profit ÷ Sales × 100**
+
+**Profit per Unit = Gross Profit ÷ Units**
+
+**Revenue Contribution (%) = Product Sales ÷ Total Sales × 100**
+
+**Profit Contribution (%) = Product Gross Profit ÷ Total Gross Profit × 100**
+
+The analysis uses Python, Pandas, Matplotlib and Streamlit.
+""")
+
+st.divider()
+
+st.caption(
+    "Nassau Candy Distributor | Product Line Profitability & Margin Performance Analysis"
 )
