@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 
 # ---------------- PAGE SETUP ----------------
 
@@ -14,7 +13,10 @@ st.set_page_config(
 
 df = pd.read_csv("Nassau_Candy_Cleaned.csv")
 
-df["Order Date"] = pd.to_datetime(df["Order Date"], errors="coerce")
+df["Order Date"] = pd.to_datetime(
+    df["Order Date"],
+    errors="coerce"
+)
 
 # ---------------- TITLE ----------------
 
@@ -51,7 +53,9 @@ selected_division = st.sidebar.selectbox(
 
 margin_threshold = st.sidebar.slider(
     "Minimum Gross Margin (%)",
-    0, 100, 20
+    0,
+    100,
+    20
 )
 
 product_search = st.sidebar.text_input(
@@ -131,7 +135,8 @@ product_analysis["Profit per Unit"] = (
 )
 
 product_analysis = product_analysis.replace(
-    [float("inf"), -float("inf")], 0
+    [float("inf"), -float("inf")],
+    0
 ).fillna(0)
 
 leaderboard = product_analysis[
@@ -153,7 +158,7 @@ st.dataframe(
     use_container_width=True
 )
 
-# Top products by profit
+# ---------------- TOP PRODUCTS BY PROFIT ----------------
 
 st.subheader("Top 10 Products by Gross Profit")
 
@@ -184,16 +189,23 @@ division_analysis["Gross Margin (%)"] = (
     division_analysis["Sales"] * 100
 )
 
+division_analysis = division_analysis.replace(
+    [float("inf"), -float("inf")],
+    0
+).fillna(0)
+
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Revenue vs Gross Profit")
+
     st.bar_chart(
         division_analysis[["Sales", "Gross_Profit"]]
     )
 
 with col2:
     st.subheader("Gross Margin by Division")
+
     st.bar_chart(
         division_analysis["Gross Margin (%)"]
     )
@@ -227,22 +239,24 @@ cost_margin["Margin (%)"] = (
     cost_margin["Sales"] * 100
 )
 
-# Scatter plot
+cost_margin = cost_margin.replace(
+    [float("inf"), -float("inf")],
+    0
+).fillna(0)
 
-fig, ax = plt.subplots(figsize=(9, 5))
+# ---------------- COST VS SALES CHART ----------------
 
-ax.scatter(
-    cost_margin["Sales"],
-    cost_margin["Cost"]
+st.subheader("Cost vs Sales")
+
+scatter_data = cost_margin[["Sales", "Cost"]].copy()
+
+st.scatter_chart(
+    scatter_data,
+    x="Sales",
+    y="Cost"
 )
 
-ax.set_title("Cost vs Sales")
-ax.set_xlabel("Sales")
-ax.set_ylabel("Cost")
-
-st.pyplot(fig)
-
-# Risk products
+# ---------------- RISK PRODUCTS ----------------
 
 st.subheader("⚠️ Margin Risk Products")
 
@@ -268,23 +282,25 @@ st.dataframe(
 
 st.subheader("High-Sales / Low-Margin Products")
 
-high_sales_low_margin = cost_margin[
-    (cost_margin["Sales"] >= cost_margin["Sales"].median()) &
-    (cost_margin["Margin (%)"] < cost_margin["Margin (%)"].median())
-]
+if not cost_margin.empty:
 
-st.dataframe(
-    high_sales_low_margin.sort_values(
-        "Sales",
-        ascending=False
-    ).head(10).style.format({
-        "Sales": "${:,.2f}",
-        "Cost": "${:,.2f}",
-        "Gross_Profit": "${:,.2f}",
-        "Margin (%)": "{:.2f}%"
-    }),
-    use_container_width=True
-)
+    high_sales_low_margin = cost_margin[
+        (cost_margin["Sales"] >= cost_margin["Sales"].median()) &
+        (cost_margin["Margin (%)"] < cost_margin["Margin (%)"].median())
+    ]
+
+    st.dataframe(
+        high_sales_low_margin.sort_values(
+            "Sales",
+            ascending=False
+        ).head(10).style.format({
+            "Sales": "${:,.2f}",
+            "Cost": "${:,.2f}",
+            "Gross_Profit": "${:,.2f}",
+            "Margin (%)": "{:.2f}%"
+        }),
+        use_container_width=True
+    )
 
 # =========================================================
 # PROFIT CONCENTRATION
@@ -344,11 +360,17 @@ monthly["Profit Margin (%)"] = (
     monthly["Sales"] * 100
 )
 
+monthly = monthly.replace(
+    [float("inf"), -float("inf")],
+    0
+).fillna(0)
+
 st.line_chart(
     monthly["Profit Margin (%)"]
 )
 
 if not monthly.empty:
+
     st.write(
         "Highest Monthly Margin:",
         f"{monthly['Profit Margin (%)'].max():.2f}%"
@@ -371,6 +393,7 @@ if not monthly.empty:
 st.header("6. Project Insights")
 
 if not division_analysis.empty:
+
     most_profitable_division = (
         division_analysis["Gross_Profit"].idxmax()
     )
@@ -381,12 +404,14 @@ if not division_analysis.empty:
     )
 
 if not top_profit.empty:
+
     st.write(
         "🍫 **Most Profitable Product:**",
         top_profit.index[0]
     )
 
 if not product_analysis.empty:
+
     highest_margin_product = (
         product_analysis["Gross Margin (%)"].idxmax()
     )
@@ -418,7 +443,7 @@ st.write("""
 
 **Profit Contribution (%) = Product Gross Profit ÷ Total Gross Profit × 100**
 
-The analysis uses Python, Pandas, Matplotlib and Streamlit.
+The analysis uses Python, Pandas and Streamlit.
 """)
 
 st.divider()
