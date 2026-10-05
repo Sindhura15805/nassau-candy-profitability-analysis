@@ -3,6 +3,21 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
+import io
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    PageBreak
+)
+
 # =========================================================
 # PAGE CONFIGURATION
 # =========================================================
@@ -1121,4 +1136,769 @@ st.markdown("---")
 
 st.success(
     "Nassau Candy Distributor Data Science Analysis Completed Successfully."
+)
+# =========================================================
+# PDF DASHBOARD REPORT DOWNLOAD
+# =========================================================
+
+def create_pdf_report():
+
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=30,
+        leftMargin=30,
+        topMargin=30,
+        bottomMargin=30
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Title"],
+        alignment=TA_CENTER,
+        fontSize=22,
+        spaceAfter=15
+    )
+
+    heading_style = ParagraphStyle(
+        "CustomHeading",
+        parent=styles["Heading1"],
+        fontSize=15,
+        spaceBefore=12,
+        spaceAfter=8
+    )
+
+    normal_style = ParagraphStyle(
+        "CustomNormal",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12
+    )
+
+    story = []
+
+    # -----------------------------------------------------
+    # TITLE
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "Nassau Candy Distributor",
+            title_style
+        )
+    )
+
+    story.append(
+        Paragraph(
+            "Product Line Profitability & Margin Performance Analysis",
+            styles["Heading2"]
+        )
+    )
+
+    story.append(Spacer(1, 15))
+
+    story.append(
+        Paragraph(
+            "This report presents the results of the Nassau Candy "
+            "Distributor Data Science analysis, including product "
+            "profitability, gross margin, division performance, cost "
+            "structure, profit concentration, regional performance, "
+            "margin volatility and factory-product relationships.",
+            normal_style
+        )
+    )
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # PROJECT OVERVIEW
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph("1. Project Overview", heading_style)
+    )
+
+    overview = [
+        ["Metric", "Value"],
+        ["Records", f"{len(df):,}"],
+        ["Products", f"{df['Product Name'].nunique():,}"],
+        ["Divisions", f"{df['Division'].nunique():,}"],
+        ["Total Sales", f"${total_sales:,.2f}"],
+        ["Total Cost", f"${total_cost:,.2f}"],
+        ["Gross Profit", f"${total_profit:,.2f}"],
+        ["Total Units", f"{total_units:,.0f}"],
+        ["Gross Margin", f"{gross_margin:.2f}%"],
+        ["Profit per Unit", f"${profit_per_unit:.2f}"]
+    ]
+
+    table = Table(
+        overview,
+        colWidths=[250, 200]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("PADDING", (0, 0), (-1, -1), 6)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # KPI DASHBOARD
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph("2. KPI Dashboard", heading_style)
+    )
+
+    kpi = [
+        ["KPI", "Value"],
+        ["Gross Margin", f"{gross_margin:.2f}%"],
+        ["Profit per Unit", f"${profit_per_unit:.2f}"],
+        [
+            "Highest Revenue Contribution",
+            f"{highest_revenue_contribution:.2f}%"
+        ],
+        [
+            "Highest Profit Contribution",
+            f"{highest_profit_contribution:.2f}%"
+        ],
+        [
+            "Most Profitable Division",
+            str(most_profitable_division)
+        ],
+        [
+            "Highest Margin Division",
+            str(highest_margin_division)
+        ],
+        [
+            "Highest Profit Product",
+            str(highest_profit_product)
+        ],
+        [
+            "Highest Margin Product",
+            str(highest_margin_product)
+        ],
+        [
+            "Margin Risk Products",
+            str(len(risk_products))
+        ]
+    ]
+
+    table = Table(
+        kpi,
+        colWidths=[300, 250],
+        repeatRows=1
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("PADDING", (0, 0), (-1, -1), 6)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # PRODUCT PROFITABILITY
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph("3. Product Profitability", heading_style)
+    )
+
+    top_products = leaderboard.head(15)
+
+    product_table = [[
+        "Product",
+        "Division",
+        "Sales",
+        "Cost",
+        "Gross Profit",
+        "Margin %",
+        "Profit / Unit"
+    ]]
+
+    for _, row in top_products.iterrows():
+
+        product_table.append([
+            str(row["Product"])[:35],
+            str(row["Division"]),
+            f"${row['Sales']:,.2f}",
+            f"${row['Cost']:,.2f}",
+            f"${row['Gross Profit']:,.2f}",
+            f"{row['Gross Margin (%)']:.2f}%",
+            f"${row['Profit per Unit']:.2f}"
+        ])
+
+    table = Table(
+        product_table,
+        repeatRows=1,
+        colWidths=[
+            190, 90, 90, 90, 100, 75, 85
+        ]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("PADDING", (0, 0), (-1, -1), 4)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # PRODUCT CLASSIFICATION
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "4. Product Profitability Classification",
+            heading_style
+        )
+    )
+
+    classification_table = [
+        ["Category", "Number of Products"]
+    ]
+
+    for _, row in classification_counts.iterrows():
+
+        classification_table.append([
+            str(row["Category"]),
+            str(row["Products"])
+        ])
+
+    table = Table(
+        classification_table,
+        repeatRows=1,
+        colWidths=[300, 200]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("PADDING", (0, 0), (-1, -1), 6)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # DIVISION PERFORMANCE
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph("5. Division Performance", heading_style)
+    )
+
+    division_table = [[
+        "Division",
+        "Sales",
+        "Gross Profit",
+        "Cost",
+        "Margin %",
+        "Profit / Unit"
+    ]]
+
+    for _, row in division.iterrows():
+
+        division_table.append([
+            str(row["Division"]),
+            f"${row['Sales']:,.2f}",
+            f"${row['Gross Profit']:,.2f}",
+            f"${row['Cost']:,.2f}",
+            f"{row['Gross Margin (%)']:.2f}%",
+            f"${row['Profit per Unit']:.2f}"
+        ])
+
+    table = Table(
+        division_table,
+        repeatRows=1,
+        colWidths=[140, 120, 120, 120, 100, 100]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("PADDING", (0, 0), (-1, -1), 5)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # COST & MARGIN RISKS
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "6. Cost Structure & Margin Risk",
+            heading_style
+        )
+    )
+
+    story.append(
+        Paragraph(
+            f"Selected margin threshold: {margin_threshold}%",
+            normal_style
+        )
+    )
+
+    story.append(
+        Spacer(1, 10)
+    )
+
+    story.append(
+        Paragraph(
+            f"Number of products below the selected threshold: "
+            f"{len(risk_products)}",
+            normal_style
+        )
+    )
+
+    story.append(
+        Spacer(1, 15)
+    )
+
+    risk_table = [[
+        "Product",
+        "Division",
+        "Sales",
+        "Cost",
+        "Gross Profit",
+        "Margin %"
+    ]]
+
+    for _, row in risk_products.head(20).iterrows():
+
+        risk_table.append([
+            str(row["Product Name"])[:35],
+            str(row["Division"]),
+            f"${row['Sales']:,.2f}",
+            f"${row['Cost']:,.2f}",
+            f"${row['Gross Profit']:,.2f}",
+            f"{row['Gross Margin (%)']:.2f}%"
+        ])
+
+    if len(risk_table) == 1:
+        risk_table.append([
+            "No products found",
+            "",
+            "",
+            "",
+            "",
+            ""
+        ])
+
+    table = Table(
+        risk_table,
+        repeatRows=1,
+        colWidths=[200, 100, 100, 100, 100, 80]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("PADDING", (0, 0), (-1, -1), 4)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # PARETO
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "7. Profit Concentration Analysis",
+            heading_style
+        )
+    )
+
+    pareto_data = [
+        ["Metric", "Result"],
+        [
+            "Products Needed for 80% Revenue",
+            f"{products_80_revenue} "
+            f"({products_80_revenue / len(product) * 100:.2f}%)"
+        ],
+        [
+            "Products Needed for 80% Profit",
+            f"{products_80_profit} "
+            f"({products_80_profit / len(product) * 100:.2f}%)"
+        ]
+    ]
+
+    table = Table(
+        pareto_data,
+        colWidths=[350, 250],
+        repeatRows=1
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("PADDING", (0, 0), (-1, -1), 6)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # REGIONAL PERFORMANCE
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "8. Regional Performance",
+            heading_style
+        )
+    )
+
+    region_table = [
+        ["Region", "Sales", "Gross Profit"]
+    ]
+
+    for _, row in region.iterrows():
+
+        region_table.append([
+            str(row["Region"]),
+            f"${row['Sales']:,.2f}",
+            f"${row['Gross Profit']:,.2f}"
+        ])
+
+    table = Table(
+        region_table,
+        repeatRows=1,
+        colWidths=[200, 200, 200]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("PADDING", (0, 0), (-1, -1), 5)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # MONTHLY PERFORMANCE
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "9. Monthly Performance & Margin Volatility",
+            heading_style
+        )
+    )
+
+    monthly_table = [
+        [
+            "Month",
+            "Sales",
+            "Gross Profit",
+            "Cost",
+            "Margin %"
+        ]
+    ]
+
+    for _, row in monthly.iterrows():
+
+        monthly_table.append([
+            row["Order Date"].strftime("%b %Y"),
+            f"${row['Sales']:,.2f}",
+            f"${row['Gross Profit']:,.2f}",
+            f"${row['Cost']:,.2f}",
+            f"{row['Gross Margin (%)']:.2f}%"
+        ])
+
+    table = Table(
+        monthly_table,
+        repeatRows=1,
+        colWidths=[120, 150, 150, 150, 120]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("PADDING", (0, 0), (-1, -1), 4)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(Spacer(1, 15))
+
+    story.append(
+        Paragraph(
+            f"Margin Volatility: {margin_volatility:.2f}%",
+            normal_style
+        )
+    )
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # FACTORY INFORMATION
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "10. Factory & Product Supply Information",
+            heading_style
+        )
+    )
+
+    factory_table = [
+        ["Factory", "Latitude", "Longitude"]
+    ]
+
+    for _, row in factory_data.iterrows():
+
+        factory_table.append([
+            str(row["Factory"]),
+            str(row["Latitude"]),
+            str(row["Longitude"])
+        ])
+
+    table = Table(
+        factory_table,
+        repeatRows=1,
+        colWidths=[300, 150, 150]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("PADDING", (0, 0), (-1, -1), 5)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(Spacer(1, 15))
+
+    story.append(
+        Paragraph(
+            "Product–Factory Correlation",
+            styles["Heading2"]
+        )
+    )
+
+    pf_table = [
+        ["Product", "Factory"]
+    ]
+
+    for _, row in product_factory.iterrows():
+
+        pf_table.append([
+            str(row["Product"])[:60],
+            str(row["Factory"])
+        ])
+
+    table = Table(
+        pf_table,
+        repeatRows=1,
+        colWidths=[400, 200]
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("PADDING", (0, 0), (-1, -1), 4)
+        ])
+    )
+
+    story.append(table)
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # SUMMARY
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "11. Summary & Recommendations",
+            heading_style
+        )
+    )
+
+    summary = [
+        f"Most profitable division: {most_profitable_division}",
+        f"Highest profit product: {highest_profit_product}",
+        f"Highest margin product: {highest_margin_product}",
+        f"Number of margin-risk products: {len(risk_products)}",
+        f"Margin volatility: {margin_volatility:.2f}%"
+    ]
+
+    for item in summary:
+
+        story.append(
+            Paragraph(
+                "• " + item,
+                normal_style
+            )
+        )
+
+        story.append(Spacer(1, 6))
+
+    story.append(Spacer(1, 10))
+
+    for i, recommendation in enumerate(
+        recommendations,
+        start=1
+    ):
+
+        story.append(
+            Paragraph(
+                f"<b>{i}. {recommendation}</b>",
+                normal_style
+            )
+        )
+
+        story.append(Spacer(1, 6))
+
+    story.append(PageBreak())
+
+    # -----------------------------------------------------
+    # METHODOLOGY
+    # -----------------------------------------------------
+
+    story.append(
+        Paragraph(
+            "12. Methodology",
+            heading_style
+        )
+    )
+
+    methodology = [
+        "Validate sales and cost values.",
+        "Remove zero-sales records.",
+        "Remove invalid records.",
+        "Handle missing unit values.",
+        "Standardize product labels.",
+        "Standardize division labels.",
+        "Convert order dates to the correct date format.",
+        "Calculate Gross Margin.",
+        "Calculate Profit per Unit.",
+        "Calculate Revenue Contribution.",
+        "Calculate Profit Contribution.",
+        "Classify products according to sales and profit.",
+        "Analyze division performance.",
+        "Analyze cost structure and margin risks.",
+        "Perform revenue and profit Pareto analysis.",
+        "Analyze regional and state performance.",
+        "Measure monthly margin volatility.",
+        "Analyze factory-product relationships."
+    ]
+
+    for item in methodology:
+
+        story.append(
+            Paragraph(
+                "• " + item,
+                normal_style
+            )
+        )
+
+        story.append(Spacer(1, 5))
+
+    story.append(Spacer(1, 20))
+
+    story.append(
+        Paragraph(
+            "Nassau Candy Distributor Data Science Analysis "
+            "Completed Successfully.",
+            styles["Heading2"]
+        )
+    )
+
+    doc.build(story)
+
+    buffer.seek(0)
+
+    return buffer
+
+
+# =========================================================
+# DOWNLOAD PDF BUTTON
+# =========================================================
+
+st.markdown("---")
+
+st.subheader("📄 Export Dashboard")
+
+pdf_data = create_pdf_report()
+
+st.download_button(
+    label="📥 Download Dashboard as PDF",
+    data=pdf_data,
+    file_name="Nassau_Candy_Profitability_Dashboard.pdf",
+    mime="application/pdf"
 )
