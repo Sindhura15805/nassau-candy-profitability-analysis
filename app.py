@@ -32,7 +32,7 @@ st.markdown(
 # LOAD DATA
 # =========================================================
 
-df = pd.read_csv("Nassau Candy Distributor.csv.csv")
+df = pd.read_csv("Nassau_Candy_Cleaned.csv")
 
 # =========================================================
 # DATA CLEANING & VALIDATION
