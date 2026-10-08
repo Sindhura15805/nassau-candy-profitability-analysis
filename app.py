@@ -3,157 +3,54 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
-import io
-
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    PageBreak
-)
-
-# =========================================================
-# PAGE CONFIGURATION
-# =========================================================
-
+# =========================
+# PAGE SETUP
+# =========================
 st.set_page_config(
-    page_title="Nassau Candy Distributor",
+    page_title="Nassau Candy Analysis",
     page_icon="🍫",
     layout="wide"
 )
 
-# =========================================================
-# TITLE
-# =========================================================
-
 st.title("🍫 Nassau Candy Distributor")
 st.subheader("Product Line Profitability & Margin Performance Analysis")
 
-st.markdown(
-    """
-    This Data Science project analyzes product profitability, gross margin,
-    division performance, cost structure, profit concentration, regional
-    performance, and margin volatility.
-    """
-)
+# =========================
+# LOAD & CLEAN DATA
+# =========================
+@st.cache_data
+def load_data():
+    df = pd.read_csv("Nassau_Candy_Cleaned.csv")
 
-# =========================================================
-# LOAD DATA
-# =========================================================
+    for col in ["Order Date", "Ship Date"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
 
-df = pd.read_csv("Nassau_Candy_Cleaned.csv")
+    for col in ["Sales", "Units", "Gross Profit", "Cost"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# =========================================================
-# DATA CLEANING & VALIDATION
-# =========================================================
+    df = df.dropna(subset=["Sales", "Gross Profit", "Cost"])
+    df = df[df["Sales"] > 0]
+    df["Units"] = df["Units"].fillna(0)
 
-df["Order Date"] = pd.to_datetime(df["Order Date"], errors="coerce")
-df["Ship Date"] = pd.to_datetime(df["Ship Date"], errors="coerce")
+    for col in ["Division", "Product Name", "State", "Region"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
 
-numeric_columns = ["Sales", "Units", "Gross Profit", "Cost"]
+    return df
 
-for col in numeric_columns:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Remove invalid records
-df = df.dropna(
-    subset=["Order Date", "Sales", "Gross Profit", "Cost"]
-)
+df = load_data()
 
-# Remove zero / negative sales
-df = df[df["Sales"] > 0]
+if df.empty:
+    st.error("No valid data found.")
+    st.stop()
 
-# Handle missing units
-df["Units"] = df["Units"].fillna(0)
-
-# Standardize labels
-df["Division"] = df["Division"].astype(str).str.strip()
-df["Product Name"] = df["Product Name"].astype(str).str.strip()
-
-# =========================================================
-# SIDEBAR FILTERS
-# =========================================================
-
-st.sidebar.header("🔎 Dashboard Filters")
-
-min_date = df["Order Date"].min().date()
-max_date = df["Order Date"].max().date()
-
-date_range = st.sidebar.date_input(
-    "Order Date Range",
-    value=(min_date, max_date),
-    min_value=min_date,
-    max_value=max_date
-)
-
-division_options = ["All"] + sorted(
-    df["Division"].dropna().unique().tolist()
-)
-
-selected_division = st.sidebar.selectbox(
-    "Division",
-    division_options
-)
-
-margin_threshold = st.sidebar.slider(
-    "Margin Threshold (%)",
-    min_value=0,
-    max_value=100,
-    value=20,
-    step=5
-)
-
-product_search = st.sidebar.text_input(
-    "Product Search"
-)
-
-# =========================================================
-# APPLY FILTERS
-# =========================================================
-
-filtered_df = df.copy()
-
-if isinstance(date_range, tuple) and len(date_range) == 2:
-
-    start_date = pd.to_datetime(date_range[0])
-    end_date = pd.to_datetime(date_range[1])
-
-    filtered_df = filtered_df[
-        (filtered_df["Order Date"] >= start_date)
-        & (filtered_df["Order Date"] <= end_date)
-    ]
-
-if selected_division != "All":
-
-    filtered_df = filtered_df[
-        filtered_df["Division"] == selected_division
-    ]
-
-if product_search:
-
-    filtered_df = filtered_df[
-        filtered_df["Product Name"].str.contains(
-            product_search,
-            case=False,
-            na=False
-        )
-    ]
-
-df = filtered_df.copy()
-
-# =========================================================
-# CALCULATED FIELDS
-# =========================================================
-
+# Calculated fields
 df["Gross Margin (%)"] = np.where(
-    df["Sales"] != 0,
-    (df["Gross Profit"] / df["Sales"]) * 100,
+    df["Sales"] > 0,
+    df["Gross Profit"] / df["Sales"] * 100,
     0
 )
 
@@ -163,81 +60,96 @@ df["Profit per Unit"] = np.where(
     0
 )
 
-# =========================================================
-# 1. PROJECT OVERVIEW
-# =========================================================
+# =========================
+# SIDEBAR FILTERS
+# =========================
+st.sidebar.header("🔎 Filters")
 
-st.markdown("---")
-st.header("📌 1. Project Overview")
+filtered = df.copy()
 
-col1, col2, col3 = st.columns(3)
+if "Order Date" in df.columns:
+    min_date = df["Order Date"].min().date()
+    max_date = df["Order Date"].max().date()
 
-with col1:
-    st.metric("Records", f"{len(df):,}")
-
-with col2:
-    st.metric("Products", df["Product Name"].nunique())
-
-with col3:
-    st.metric("Divisions", df["Division"].nunique())
-
-st.markdown(
-    """
-    **Objective:** Analyze product-level and division-level profitability,
-    identify margin risks, understand cost structure, measure profit
-    concentration, and provide business recommendations.
-    """
-)
-
-# =========================================================
-# 2. DATASET OVERVIEW
-# =========================================================
-
-st.header("📁 2. Dataset Overview")
-
-total_sales = df["Sales"].sum()
-total_cost = df["Cost"].sum()
-total_profit = df["Gross Profit"].sum()
-total_units = df["Units"].sum()
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Total Sales", f"${total_sales:,.2f}")
-
-with col2:
-    st.metric("Total Cost", f"${total_cost:,.2f}")
-
-with col3:
-    st.metric("Gross Profit", f"${total_profit:,.2f}")
-
-with col4:
-    st.metric("Total Units", f"{total_units:,.0f}")
-
-with st.expander("📄 Dataset Preview"):
-    st.dataframe(
-        df.head(10),
-        use_container_width=True
+    dates = st.sidebar.date_input(
+        "Order Date",
+        (min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
     )
 
-# =========================================================
-# 3. KPI DASHBOARD
-# =========================================================
+    if isinstance(dates, tuple) and len(dates) == 2:
+        start = pd.Timestamp(dates[0])
+        end = pd.Timestamp(dates[1]) + pd.Timedelta(days=1)
 
-st.header("📊 3. KPI Dashboard")
+        filtered = filtered[
+            (filtered["Order Date"] >= start) &
+            (filtered["Order Date"] < end)
+        ]
 
-gross_margin = (
-    total_profit / total_sales * 100
-    if total_sales != 0 else 0
+if "Division" in df.columns:
+    divisions = sorted(df["Division"].dropna().unique())
+
+    selected = st.sidebar.multiselect(
+        "Division",
+        divisions,
+        default=divisions
+    )
+
+    filtered = filtered[
+        filtered["Division"].isin(selected)
+    ]
+
+margin = st.sidebar.slider(
+    "Minimum Margin (%)",
+    0, 100, 0
 )
 
-profit_per_unit = (
-    total_profit / total_units
-    if total_units != 0 else 0
-)
+filtered = filtered[
+    filtered["Gross Margin (%)"] >= margin
+]
 
-# Product-level aggregation
-product = df.groupby(
+if "Product Name" in df.columns:
+    search = st.sidebar.text_input("Search Product")
+
+    if search:
+        filtered = filtered[
+            filtered["Product Name"].str.contains(
+                search,
+                case=False,
+                na=False
+            )
+        ]
+
+if filtered.empty:
+    st.warning("No data matches the selected filters.")
+    st.stop()
+
+# =========================
+# KPI DASHBOARD
+# =========================
+st.header("📊 KPI Dashboard")
+
+sales = filtered["Sales"].sum()
+cost = filtered["Cost"].sum()
+profit = filtered["Gross Profit"].sum()
+units = filtered["Units"].sum()
+margin_value = profit / sales * 100 if sales else 0
+
+c1, c2, c3, c4, c5 = st.columns(5)
+
+c1.metric("Total Sales", f"${sales:,.0f}")
+c2.metric("Total Cost", f"${cost:,.0f}")
+c3.metric("Gross Profit", f"${profit:,.0f}")
+c4.metric("Units Sold", f"{units:,.0f}")
+c5.metric("Gross Margin", f"{margin_value:.2f}%")
+
+# =========================
+# PRODUCT ANALYSIS
+# =========================
+st.header("🍬 Product Profitability")
+
+product = filtered.groupby(
     ["Product Name", "Division"],
     as_index=False
 ).agg({
@@ -247,10 +159,9 @@ product = df.groupby(
     "Cost": "sum"
 })
 
-product["Gross Margin (%)"] = np.where(
-    product["Sales"] != 0,
-    product["Gross Profit"] / product["Sales"] * 100,
-    0
+product["Gross Margin (%)"] = (
+    product["Gross Profit"] /
+    product["Sales"] * 100
 )
 
 product["Profit per Unit"] = np.where(
@@ -259,467 +170,176 @@ product["Profit per Unit"] = np.where(
     0
 )
 
-product["Revenue Contribution (%)"] = np.where(
-    total_sales != 0,
-    product["Sales"] / total_sales * 100,
-    0
+product["Revenue Contribution (%)"] = (
+    product["Sales"] / product["Sales"].sum() * 100
 )
 
-product["Profit Contribution (%)"] = np.where(
-    total_profit != 0,
-    product["Gross Profit"] / total_profit * 100,
-    0
+product["Profit Contribution (%)"] = (
+    product["Gross Profit"] /
+    product["Gross Profit"].sum() * 100
 )
-
-highest_revenue_contribution = (
-    product["Revenue Contribution (%)"].max()
-    if not product.empty else 0
-)
-
-highest_profit_contribution = (
-    product["Profit Contribution (%)"].max()
-    if not product.empty else 0
-)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        "Gross Margin",
-        f"{gross_margin:.2f}%"
-    )
-
-with col2:
-    st.metric(
-        "Profit per Unit",
-        f"${profit_per_unit:.2f}"
-    )
-
-with col3:
-    st.metric(
-        "Highest Product Revenue Contribution",
-        f"{highest_revenue_contribution:.2f}%"
-    )
-
-with col4:
-    st.metric(
-        "Highest Product Profit Contribution",
-        f"{highest_profit_contribution:.2f}%"
-    )
-
-# =========================================================
-# 4. PRODUCT PROFITABILITY
-# =========================================================
-
-st.header("🍫 4. Product Profitability Overview")
-
-st.subheader("Product-Level Margin Leaderboard")
-
-leaderboard = product.sort_values(
-    "Gross Profit",
-    ascending=False
-).copy()
-
-leaderboard = leaderboard[
-    [
-        "Product Name",
-        "Division",
-        "Sales",
-        "Cost",
-        "Gross Profit",
-        "Gross Margin (%)",
-        "Profit per Unit",
-        "Revenue Contribution (%)",
-        "Profit Contribution (%)"
-    ]
-]
-
-leaderboard.columns = [
-    "Product",
-    "Division",
-    "Sales",
-    "Cost",
-    "Gross Profit",
-    "Gross Margin (%)",
-    "Profit per Unit",
-    "Revenue Contribution (%)",
-    "Profit Contribution (%)"
-]
-
-with st.expander("View Product Profitability Leaderboard"):
-    st.dataframe(
-        leaderboard.style.format({
-            "Sales": "${:,.2f}",
-            "Cost": "${:,.2f}",
-            "Gross Profit": "${:,.2f}",
-            "Gross Margin (%)": "{:.2f}%",
-            "Profit per Unit": "${:.2f}",
-            "Revenue Contribution (%)": "{:.2f}%",
-            "Profit Contribution (%)": "{:.2f}%"
-        }),
-        use_container_width=True
-    )
 
 col1, col2 = st.columns(2)
 
 with col1:
+    top_sales = product.nlargest(10, "Sales")
 
-    top_profit = product.nlargest(
-        10,
-        "Gross Profit"
-    ).sort_values(
-        "Gross Profit"
+    fig = px.bar(
+        top_sales,
+        x="Sales",
+        y="Product Name",
+        color="Division",
+        orientation="h",
+        title="Top Products by Sales"
     )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+with col2:
+    top_profit = product.nlargest(10, "Gross Profit")
 
     fig = px.bar(
         top_profit,
         x="Gross Profit",
         y="Product Name",
+        color="Division",
         orientation="h",
-        title="Top Products by Gross Profit"
+        title="Top Products by Profit"
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+    st.plotly_chart(fig, use_container_width=True)
 
-with col2:
+st.dataframe(
+    product.sort_values(
+        "Gross Profit",
+        ascending=False
+    ),
+    use_container_width=True,
+    hide_index=True
+)
 
-    top_margin = product.nlargest(
-        10,
-        "Gross Margin (%)"
-    ).sort_values(
-        "Gross Margin (%)"
-    )
-
-    fig = px.bar(
-        top_margin,
-        x="Gross Margin (%)",
-        y="Product Name",
-        orientation="h",
-        title="Top Products by Gross Margin"
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-# =========================================================
-# 5. PRODUCT CLASSIFICATION
-# =========================================================
-
-st.header("📦 5. Product Profitability Classification")
+# =========================
+# PROFITABILITY CLASSIFICATION
+# =========================
+st.header("🎯 Profitability Classification")
 
 median_sales = product["Sales"].median()
 median_profit = product["Gross Profit"].median()
 
-def classify_product(row):
+product["Classification"] = np.select(
+    [
+        (product["Sales"] >= median_sales) &
+        (product["Gross Profit"] >= median_profit),
 
-    if row["Sales"] >= median_sales and row["Gross Profit"] >= median_profit:
-        return "High Sales / High Profit"
+        (product["Sales"] >= median_sales) &
+        (product["Gross Profit"] < median_profit),
 
-    elif row["Sales"] >= median_sales and row["Gross Profit"] < median_profit:
-        return "High Sales / Low Profit"
-
-    elif row["Sales"] < median_sales and row["Gross Profit"] >= median_profit:
-        return "Low Sales / High Profit"
-
-    else:
-        return "Low Sales / Low Profit"
-
-product["Performance Category"] = product.apply(
-    classify_product,
-    axis=1
+        (product["Sales"] < median_sales) &
+        (product["Gross Profit"] >= median_profit)
+    ],
+    [
+        "High Sales / High Profit",
+        "High Sales / Low Profit",
+        "Low Sales / High Profit"
+    ],
+    default="Low Sales / Low Profit"
 )
 
-classification_counts = (
-    product["Performance Category"]
+classification = (
+    product["Classification"]
     .value_counts()
     .reset_index()
 )
 
-classification_counts.columns = [
-    "Category",
-    "Products"
-]
+classification.columns = ["Classification", "Products"]
 
 fig = px.bar(
-    classification_counts,
-    x="Category",
+    classification,
+    x="Classification",
     y="Products",
-    title="Product Performance Classification"
+    title="Product Profitability Categories"
 )
 
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+st.plotly_chart(fig, use_container_width=True)
 
-with st.expander("View Classification Table"):
-    st.dataframe(
-        product[
-            [
-                "Product Name",
-                "Division",
-                "Sales",
-                "Gross Profit",
-                "Performance Category"
-            ]
-        ],
-        use_container_width=True
-    )
+# =========================
+# DIVISION & COST ANALYSIS
+# =========================
+st.header("🏢 Division & Cost Analysis")
 
-# =========================================================
-# 6. DIVISION PERFORMANCE
-# =========================================================
-
-st.header("🏢 6. Division Performance Dashboard")
-
-division = df.groupby(
+division = filtered.groupby(
     "Division",
     as_index=False
 ).agg({
     "Sales": "sum",
-    "Gross Profit": "sum",
     "Cost": "sum",
+    "Gross Profit": "sum",
     "Units": "sum"
 })
 
-division["Gross Margin (%)"] = np.where(
-    division["Sales"] != 0,
+division["Gross Margin (%)"] = (
     division["Gross Profit"] /
-    division["Sales"] * 100,
-    0
-)
-
-division["Profit per Unit"] = np.where(
-    division["Units"] > 0,
-    division["Gross Profit"] /
-    division["Units"],
-    0
+    division["Sales"] * 100
 )
 
 col1, col2 = st.columns(2)
 
 with col1:
-
     fig = px.bar(
         division,
         x="Division",
         y=["Sales", "Gross Profit"],
         barmode="group",
-        title="Revenue vs Profit by Division"
+        title="Sales vs Profit by Division"
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+    st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-
     fig = px.bar(
         division,
         x="Division",
-        y="Gross Margin (%)",
-        title="Gross Margin by Division"
+        y="Cost",
+        title="Cost by Division"
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+    st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("Margin Distribution by Division")
-
-division_margin = df[
-    ["Division", "Gross Margin (%)"]
-]
-
-fig = px.box(
-    division_margin,
-    x="Division",
-    y="Gross Margin (%)",
-    title="Margin Distribution by Division"
+st.dataframe(
+    division.sort_values(
+        "Gross Profit",
+        ascending=False
+    ),
+    use_container_width=True,
+    hide_index=True
 )
 
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+# =========================
+# PARETO ANALYSIS
+# =========================
+st.header("📈 Revenue & Profit Concentration")
 
-with st.expander("View Division Performance Table"):
-
-    st.dataframe(
-        division.style.format({
-            "Sales": "${:,.2f}",
-            "Gross Profit": "${:,.2f}",
-            "Cost": "${:,.2f}",
-            "Gross Margin (%)": "{:.2f}%",
-            "Profit per Unit": "${:.2f}"
-        }),
-        use_container_width=True
-    )
-
-most_profitable_division = division.loc[
-    division["Gross Profit"].idxmax(),
-    "Division"
-]
-
-highest_margin_division = division.loc[
-    division["Gross Margin (%)"].idxmax(),
-    "Division"
-]
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.metric(
-        "Most Profitable Division",
-        most_profitable_division
-    )
-
-with col2:
-    st.metric(
-        "Highest Margin Division",
-        highest_margin_division
-    )
-
-# =========================================================
-# 7. COST STRUCTURE DIAGNOSTICS
-# =========================================================
-
-st.header("💸 7. Cost Structure Diagnostics")
-
-fig = px.scatter(
-    product,
-    x="Sales",
-    y="Cost",
-    size="Gross Profit",
-    hover_name="Product Name",
-    title="Cost vs Sales"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-st.write(
-    "Products with relatively high costs compared with their sales "
-    "may require pricing, sourcing or cost-control review."
-)
-
-risk_products = product[
-    product["Gross Margin (%)"] < margin_threshold
-].copy()
-
-st.subheader(
-    f"Margin Risk Products Below {margin_threshold}%"
-)
-
-st.write(
-    f"**{len(risk_products)} product(s)** are below "
-    f"the selected margin threshold."
-)
-
-if not risk_products.empty:
-
-    st.dataframe(
-        risk_products[
-            [
-                "Product Name",
-                "Division",
-                "Sales",
-                "Cost",
-                "Gross Profit",
-                "Gross Margin (%)"
-            ]
-        ],
-        use_container_width=True
-    )
-
-high_sales_low_margin = product[
-    (product["Sales"] >= median_sales)
-    & (product["Gross Margin (%)"] < margin_threshold)
-]
-
-st.subheader("High-Sales / Low-Margin Products")
-
-if high_sales_low_margin.empty:
-
-    st.info(
-        "No high-sales / low-margin products found "
-        "under the selected margin threshold."
-    )
-
-else:
-
-    st.dataframe(
-        high_sales_low_margin[
-            [
-                "Product Name",
-                "Division",
-                "Sales",
-                "Gross Profit",
-                "Gross Margin (%)"
-            ]
-        ],
-        use_container_width=True
-    )
-
-# =========================================================
-# 8. PROFIT CONCENTRATION
-# =========================================================
-
-st.header("📈 8. Profit Concentration Analysis")
-
-# Revenue Pareto
-
-revenue_pareto = product.sort_values(
+pareto = product.sort_values(
     "Sales",
     ascending=False
 ).copy()
 
-revenue_pareto["Cumulative Revenue (%)"] = (
-    revenue_pareto["Sales"].cumsum()
-    / revenue_pareto["Sales"].sum()
-    * 100
+pareto["Cumulative Revenue (%)"] = (
+    pareto["Sales"].cumsum() /
+    pareto["Sales"].sum() * 100
 )
 
-products_80_revenue = (
-    revenue_pareto["Cumulative Revenue (%)"] <= 80
-).sum()
-
-if products_80_revenue == 0:
-    products_80_revenue = 1
-
-fig = px.bar(
-    revenue_pareto,
+fig = px.line(
+    pareto,
     x="Product Name",
     y="Cumulative Revenue (%)",
-    title="Revenue Pareto"
+    markers=True,
+    title="Cumulative Revenue Contribution"
 )
 
-fig.add_hline(
-    y=80,
-    line_dash="dash"
-)
+fig.add_hline(y=80, line_dash="dash")
 
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-st.metric(
-    "Products Needed for 80% Revenue",
-    f"{products_80_revenue} "
-    f"({products_80_revenue / len(product) * 100:.2f}%)"
-)
-
-# Profit Pareto
+st.plotly_chart(fig, use_container_width=True)
 
 profit_pareto = product.sort_values(
     "Gross Profit",
@@ -727,190 +347,148 @@ profit_pareto = product.sort_values(
 ).copy()
 
 profit_pareto["Cumulative Profit (%)"] = (
-    profit_pareto["Gross Profit"].cumsum()
-    / profit_pareto["Gross Profit"].sum()
-    * 100
+    profit_pareto["Gross Profit"].cumsum() /
+    profit_pareto["Gross Profit"].sum() * 100
 )
 
-products_80_profit = (
-    profit_pareto["Cumulative Profit (%)"] <= 80
-).sum()
-
-if products_80_profit == 0:
-    products_80_profit = 1
-
-fig = px.bar(
+fig = px.line(
     profit_pareto,
     x="Product Name",
     y="Cumulative Profit (%)",
-    title="Profit Pareto"
+    markers=True,
+    title="Cumulative Profit Contribution"
 )
 
-fig.add_hline(
-    y=80,
-    line_dash="dash"
+fig.add_hline(y=80, line_dash="dash")
+
+st.plotly_chart(fig, use_container_width=True)
+
+# =========================
+# REGIONAL ANALYSIS
+# =========================
+st.header("🌎 Regional / State Performance")
+
+location_col = (
+    "State"
+    if "State" in filtered.columns
+    else "Region"
+    if "Region" in filtered.columns
+    else None
 )
 
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+if location_col:
 
-st.metric(
-    "Products Needed for 80% Profit",
-    f"{products_80_profit} "
-    f"({products_80_profit / len(product) * 100:.2f}%)"
-)
+    location = filtered.groupby(
+        location_col,
+        as_index=False
+    ).agg({
+        "Sales": "sum",
+        "Gross Profit": "sum",
+        "Units": "sum"
+    })
 
-# =========================================================
-# 9. REGIONAL & STATE PERFORMANCE
-# =========================================================
-
-st.header("🌎 9. Regional & State Performance")
-
-region = df.groupby(
-    "Region",
-    as_index=False
-).agg({
-    "Sales": "sum",
-    "Gross Profit": "sum"
-})
-
-fig = px.bar(
-    region,
-    x="Region",
-    y=["Sales", "Gross Profit"],
-    barmode="group",
-    title="Revenue & Gross Profit by Region"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-state = df.groupby(
-    "State/Province",
-    as_index=False
-).agg({
-    "Sales": "sum",
-    "Gross Profit": "sum"
-})
-
-top_states_revenue = state.nlargest(
-    10,
-    "Sales"
-)
-
-fig = px.bar(
-    top_states_revenue.sort_values("Sales"),
-    x="Sales",
-    y="State/Province",
-    orientation="h",
-    title="Top States by Revenue"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-top_states_profit = state.nlargest(
-    10,
-    "Gross Profit"
-)
-
-fig = px.bar(
-    top_states_profit.sort_values("Gross Profit"),
-    x="Gross Profit",
-    y="State/Province",
-    orientation="h",
-    title="Top States by Gross Profit"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-# =========================================================
-# 10. MARGIN VOLATILITY
-# =========================================================
-
-st.header("📅 10. Margin Volatility Analysis")
-
-monthly = df.set_index(
-    "Order Date"
-).resample("ME").agg({
-    "Sales": "sum",
-    "Gross Profit": "sum",
-    "Cost": "sum"
-}).reset_index()
-
-monthly["Gross Margin (%)"] = np.where(
-    monthly["Sales"] != 0,
-    monthly["Gross Profit"] /
-    monthly["Sales"] * 100,
-    0
-)
-
-fig = px.line(
-    monthly,
-    x="Order Date",
-    y=["Sales", "Gross Profit"],
-    title="Monthly Sales & Gross Profit"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-fig = px.line(
-    monthly,
-    x="Order Date",
-    y="Gross Margin (%)",
-    title="Monthly Gross Margin"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-margin_volatility = monthly[
-    "Gross Margin (%)"
-].std()
-
-st.metric(
-    "Margin Volatility",
-    f"{margin_volatility:.2f}%"
-)
-
-st.caption(
-    "Margin volatility is measured using the standard deviation "
-    "of monthly gross margin."
-)
-
-with st.expander("View Monthly Performance Table"):
-
-    st.dataframe(
-        monthly.style.format({
-            "Sales": "${:,.2f}",
-            "Gross Profit": "${:,.2f}",
-            "Cost": "${:,.2f}",
-            "Gross Margin (%)": "{:.2f}%"
-        }),
-        use_container_width=True
+    location["Gross Margin (%)"] = (
+        location["Gross Profit"] /
+        location["Sales"] * 100
     )
 
-# =========================================================
-# 11. FACTORY & PRODUCT SUPPLY INFORMATION
-# =========================================================
+    top_location = location.nlargest(
+        15,
+        "Sales"
+    )
 
-st.header("🏭 11. Factory & Product Supply Information")
+    fig = px.bar(
+        top_location,
+        x="Sales",
+        y=location_col,
+        orientation="h",
+        title=f"Top {location_col}s by Sales"
+    )
 
-factory_data = pd.DataFrame({
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.dataframe(
+        location.sort_values(
+            "Gross Profit",
+            ascending=False
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
+
+else:
+    st.info("No State or Region column found.")
+
+# =========================
+# MARGIN RISK & VOLATILITY
+# =========================
+st.header("⚠️ Margin Risk & Volatility")
+
+risk_limit = st.slider(
+    "Risk Threshold (%)",
+    0, 50, 20
+)
+
+risk = product[
+    product["Gross Margin (%)"] < risk_limit
+].sort_values("Gross Margin (%)")
+
+if risk.empty:
+    st.success("No products are below the selected margin threshold.")
+else:
+    st.warning(
+        f"{len(risk)} product(s) require margin attention."
+    )
+
+    st.dataframe(
+        risk[
+            [
+                "Product Name",
+                "Division",
+                "Sales",
+                "Gross Profit",
+                "Gross Margin (%)",
+                "Profit per Unit"
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True
+    )
+
+if "Order Date" in filtered.columns:
+
+    monthly = (
+        filtered.dropna(subset=["Order Date"])
+        .set_index("Order Date")
+        .resample("ME")
+        .agg({
+            "Sales": "sum",
+            "Gross Profit": "sum"
+        })
+        .reset_index()
+    )
+
+    monthly["Gross Margin (%)"] = (
+        monthly["Gross Profit"] /
+        monthly["Sales"] * 100
+    )
+
+    fig = px.line(
+        monthly,
+        x="Order Date",
+        y="Gross Margin (%)",
+        markers=True,
+        title="Monthly Gross Margin Trend"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# =========================
+# FACTORY INFORMATION
+# =========================
+st.header("🏭 Factory Information")
+
+factory = pd.DataFrame({
     "Factory": [
         "Lot's O' Nuts",
         "Wicked Choccy's",
@@ -934,971 +512,69 @@ factory_data = pd.DataFrame({
     ]
 })
 
-st.subheader("Factory Locations")
-
-st.map(
-    factory_data.rename(
-        columns={
-            "Latitude": "lat",
-            "Longitude": "lon"
-        }
-    )[["lat", "lon"]]
-)
-
-st.subheader("Factory Coordinates")
-
 st.dataframe(
-    factory_data,
-    use_container_width=True
+    factory,
+    use_container_width=True,
+    hide_index=True
 )
 
-product_factory = pd.DataFrame({
-    "Product": [
-        "Wonka Bar - Nutty Crunch Surprise",
-        "Wonka Bar - Fudge Mallows",
-        "Wonka Bar -Scrumdiddlyumptious",
-        "Wonka Bar - Milk Chocolate",
-        "Wonka Bar - Triple Dazzle Caramel",
-        "Laffy Taffy",
-        "SweeTARTS",
-        "Nerds",
-        "Fun Dip",
-        "Fizzy Lifting Drinks",
-        "Everlasting Gobstopper",
-        "Hair Toffee",
-        "Lickable Wallpaper",
-        "Wonka Gum",
-        "Kazookles"
-    ],
-    "Factory": [
-        "Lot's O' Nuts",
-        "Lot's O' Nuts",
-        "Lot's O' Nuts",
-        "Wicked Choccy's",
-        "Wicked Choccy's",
-        "Sugar Shack",
-        "Sugar Shack",
-        "Sugar Shack",
-        "Sugar Shack",
-        "Sugar Shack",
-        "Secret Factory",
-        "The Other Factory",
-        "Secret Factory",
-        "Secret Factory",
-        "The Other Factory"
-    ]
-})
+# =========================
+# SUMMARY
+# =========================
+st.header("💡 Summary & Recommendations")
 
-st.subheader("Product–Factory Correlation")
-
-st.dataframe(
-    product_factory,
-    use_container_width=True
-)
-
-# =========================================================
-# 12. SUMMARY & RECOMMENDATIONS
-# =========================================================
-
-st.header("💡 12. Summary & Recommendations")
-
-highest_profit_product = product.loc[
-    product["Gross Profit"].idxmax(),
-    "Product Name"
+best_product = product.loc[
+    product["Gross Profit"].idxmax()
 ]
 
-highest_margin_product = product.loc[
-    product["Gross Margin (%)"].idxmax(),
-    "Product Name"
+best_margin = product.loc[
+    product["Gross Margin (%)"].idxmax()
 ]
 
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        "Most Profitable Division",
-        most_profitable_division
-    )
-
-with col2:
-    st.metric(
-        "Highest Profit Product",
-        highest_profit_product
-    )
-
-with col3:
-    st.metric(
-        "Highest Margin Product",
-        highest_margin_product
-    )
-
-with col4:
-    st.metric(
-        "Margin Risk Products",
-        len(risk_products)
-    )
-
-st.subheader("Key Recommendations")
-
-recommendations = [
-    "Prioritize high-profit and high-margin products by focusing resources on products that provide strong profitability.",
-    "Review high-sales / low-margin products because high revenue does not necessarily mean high profitability.",
-    "Control product costs through supplier negotiation, sourcing improvements, or pricing adjustments.",
-    "Monitor profit concentration because heavy dependence on a small number of products can create business risk.",
-    "Monitor margin volatility and investigate significant monthly margin changes.",
-    "Review low-sales and low-profit products for possible rationalization or discontinuation."
+best_division = division.loc[
+    division["Gross Profit"].idxmax()
 ]
 
-for i, recommendation in enumerate(
-    recommendations,
-    start=1
-):
-    st.markdown(
-        f"**{i}. {recommendation}**"
-    )
-
-# =========================================================
-# 13. METHODOLOGY
-# =========================================================
-
-st.header("📐 13. Methodology")
-
-st.subheader("Data Cleaning & Validation")
-
-st.markdown(
-    """
-    • Validate sales and cost values  
-    • Remove zero-sales records  
-    • Remove invalid records  
-    • Handle missing unit values  
-    • Standardize product labels  
-    • Standardize division labels  
-    • Convert order dates to the correct date format
-    """
+st.write(
+    f"**Most profitable product:** "
+    f"{best_product['Product Name']} "
+    f"(${best_product['Gross Profit']:,.2f} profit)"
 )
 
-st.subheader("Key Formulas")
-
-st.markdown(
-    """
-    **Gross Margin (%)**
-
-    Gross Profit ÷ Sales × 100
-
-    **Profit per Unit**
-
-    Gross Profit ÷ Units
-
-    **Revenue Contribution (%)**
-
-    Product Sales ÷ Total Sales × 100
-
-    **Profit Contribution (%)**
-
-    Product Gross Profit ÷ Total Gross Profit × 100
-
-    **Margin Volatility**
-
-    Standard deviation of monthly gross margin
-    """
+st.write(
+    f"**Highest-margin product:** "
+    f"{best_margin['Product Name']} "
+    f"({best_margin['Gross Margin (%)']:.2f}% margin)"
 )
 
-st.subheader("Analysis Covered")
-
-st.markdown(
-    """
-    ✔ Data Cleaning & Validation  
-    ✔ Product Profitability  
-    ✔ Gross Margin Analysis  
-    ✔ Profit per Unit  
-    ✔ Revenue Contribution  
-    ✔ Profit Contribution  
-    ✔ Product Classification  
-    ✔ Division Performance  
-    ✔ Margin Distribution by Division  
-    ✔ Cost vs Sales Diagnostics  
-    ✔ Margin Risk Identification  
-    ✔ High-Sales / Low-Margin Analysis  
-    ✔ Revenue Pareto Analysis  
-    ✔ Profit Pareto Analysis  
-    ✔ Regional & State Concentration  
-    ✔ Margin Volatility  
-    ✔ Factory & Product Relationship  
-    ✔ Insights & Recommendations
-    """
+st.write(
+    f"**Best division:** "
+    f"{best_division['Division']} "
+    f"(${best_division['Gross Profit']:,.2f} profit)"
 )
 
-# =========================================================
-# FINAL MESSAGE
-# =========================================================
-
-st.markdown("---")
-
-st.success(
-    "Nassau Candy Distributor Data Science Analysis Completed Successfully."
+st.write(
+    "• Focus on high-profit products and divisions."
 )
-# =========================================================
-# PDF DASHBOARD REPORT DOWNLOAD
-# =========================================================
 
-def create_pdf_report():
+st.write(
+    "• Review high-sales products with low margins."
+)
 
-    buffer = io.BytesIO()
+st.write(
+    "• Monitor products below the margin-risk threshold."
+)
 
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(A4),
-        rightMargin=30,
-        leftMargin=30,
-        topMargin=30,
-        bottomMargin=30
-    )
+st.write(
+    "• Use regional performance to identify strong and weak markets."
+)
 
-    styles = getSampleStyleSheet()
+st.write(
+    "• Monitor monthly margins to identify changes in profitability."
+)
 
-    title_style = ParagraphStyle(
-        "CustomTitle",
-        parent=styles["Title"],
-        alignment=TA_CENTER,
-        fontSize=22,
-        spaceAfter=15
-    )
+st.divider()
 
-    heading_style = ParagraphStyle(
-        "CustomHeading",
-        parent=styles["Heading1"],
-        fontSize=15,
-        spaceBefore=12,
-        spaceAfter=8
-    )
-
-    normal_style = ParagraphStyle(
-        "CustomNormal",
-        parent=styles["Normal"],
-        fontSize=9,
-        leading=12
-    )
-
-    story = []
-
-    # -----------------------------------------------------
-    # TITLE
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "Nassau Candy Distributor",
-            title_style
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "Product Line Profitability & Margin Performance Analysis",
-            styles["Heading2"]
-        )
-    )
-
-    story.append(Spacer(1, 15))
-
-    story.append(
-        Paragraph(
-            "This report presents the results of the Nassau Candy "
-            "Distributor Data Science analysis, including product "
-            "profitability, gross margin, division performance, cost "
-            "structure, profit concentration, regional performance, "
-            "margin volatility and factory-product relationships.",
-            normal_style
-        )
-    )
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # PROJECT OVERVIEW
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph("1. Project Overview", heading_style)
-    )
-
-    overview = [
-        ["Metric", "Value"],
-        ["Records", f"{len(df):,}"],
-        ["Products", f"{df['Product Name'].nunique():,}"],
-        ["Divisions", f"{df['Division'].nunique():,}"],
-        ["Total Sales", f"${total_sales:,.2f}"],
-        ["Total Cost", f"${total_cost:,.2f}"],
-        ["Gross Profit", f"${total_profit:,.2f}"],
-        ["Total Units", f"{total_units:,.0f}"],
-        ["Gross Margin", f"{gross_margin:.2f}%"],
-        ["Profit per Unit", f"${profit_per_unit:.2f}"]
-    ]
-
-    table = Table(
-        overview,
-        colWidths=[250, 200]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("PADDING", (0, 0), (-1, -1), 6)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # KPI DASHBOARD
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph("2. KPI Dashboard", heading_style)
-    )
-
-    kpi = [
-        ["KPI", "Value"],
-        ["Gross Margin", f"{gross_margin:.2f}%"],
-        ["Profit per Unit", f"${profit_per_unit:.2f}"],
-        [
-            "Highest Revenue Contribution",
-            f"{highest_revenue_contribution:.2f}%"
-        ],
-        [
-            "Highest Profit Contribution",
-            f"{highest_profit_contribution:.2f}%"
-        ],
-        [
-            "Most Profitable Division",
-            str(most_profitable_division)
-        ],
-        [
-            "Highest Margin Division",
-            str(highest_margin_division)
-        ],
-        [
-            "Highest Profit Product",
-            str(highest_profit_product)
-        ],
-        [
-            "Highest Margin Product",
-            str(highest_margin_product)
-        ],
-        [
-            "Margin Risk Products",
-            str(len(risk_products))
-        ]
-    ]
-
-    table = Table(
-        kpi,
-        colWidths=[300, 250],
-        repeatRows=1
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("PADDING", (0, 0), (-1, -1), 6)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # PRODUCT PROFITABILITY
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph("3. Product Profitability", heading_style)
-    )
-
-    top_products = leaderboard.head(15)
-
-    product_table = [[
-        "Product",
-        "Division",
-        "Sales",
-        "Cost",
-        "Gross Profit",
-        "Margin %",
-        "Profit / Unit"
-    ]]
-
-    for _, row in top_products.iterrows():
-
-        product_table.append([
-            str(row["Product"])[:35],
-            str(row["Division"]),
-            f"${row['Sales']:,.2f}",
-            f"${row['Cost']:,.2f}",
-            f"${row['Gross Profit']:,.2f}",
-            f"{row['Gross Margin (%)']:.2f}%",
-            f"${row['Profit per Unit']:.2f}"
-        ])
-
-    table = Table(
-        product_table,
-        repeatRows=1,
-        colWidths=[
-            190, 90, 90, 90, 100, 75, 85
-        ]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ("PADDING", (0, 0), (-1, -1), 4)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # PRODUCT CLASSIFICATION
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "4. Product Profitability Classification",
-            heading_style
-        )
-    )
-
-    classification_table = [
-        ["Category", "Number of Products"]
-    ]
-
-    for _, row in classification_counts.iterrows():
-
-        classification_table.append([
-            str(row["Category"]),
-            str(row["Products"])
-        ])
-
-    table = Table(
-        classification_table,
-        repeatRows=1,
-        colWidths=[300, 200]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("PADDING", (0, 0), (-1, -1), 6)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # DIVISION PERFORMANCE
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph("5. Division Performance", heading_style)
-    )
-
-    division_table = [[
-        "Division",
-        "Sales",
-        "Gross Profit",
-        "Cost",
-        "Margin %",
-        "Profit / Unit"
-    ]]
-
-    for _, row in division.iterrows():
-
-        division_table.append([
-            str(row["Division"]),
-            f"${row['Sales']:,.2f}",
-            f"${row['Gross Profit']:,.2f}",
-            f"${row['Cost']:,.2f}",
-            f"{row['Gross Margin (%)']:.2f}%",
-            f"${row['Profit per Unit']:.2f}"
-        ])
-
-    table = Table(
-        division_table,
-        repeatRows=1,
-        colWidths=[140, 120, 120, 120, 100, 100]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("PADDING", (0, 0), (-1, -1), 5)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # COST & MARGIN RISKS
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "6. Cost Structure & Margin Risk",
-            heading_style
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"Selected margin threshold: {margin_threshold}%",
-            normal_style
-        )
-    )
-
-    story.append(
-        Spacer(1, 10)
-    )
-
-    story.append(
-        Paragraph(
-            f"Number of products below the selected threshold: "
-            f"{len(risk_products)}",
-            normal_style
-        )
-    )
-
-    story.append(
-        Spacer(1, 15)
-    )
-
-    risk_table = [[
-        "Product",
-        "Division",
-        "Sales",
-        "Cost",
-        "Gross Profit",
-        "Margin %"
-    ]]
-
-    for _, row in risk_products.head(20).iterrows():
-
-        risk_table.append([
-            str(row["Product Name"])[:35],
-            str(row["Division"]),
-            f"${row['Sales']:,.2f}",
-            f"${row['Cost']:,.2f}",
-            f"${row['Gross Profit']:,.2f}",
-            f"{row['Gross Margin (%)']:.2f}%"
-        ])
-
-    if len(risk_table) == 1:
-        risk_table.append([
-            "No products found",
-            "",
-            "",
-            "",
-            "",
-            ""
-        ])
-
-    table = Table(
-        risk_table,
-        repeatRows=1,
-        colWidths=[200, 100, 100, 100, 100, 80]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ("PADDING", (0, 0), (-1, -1), 4)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # PARETO
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "7. Profit Concentration Analysis",
-            heading_style
-        )
-    )
-
-    pareto_data = [
-        ["Metric", "Result"],
-        [
-            "Products Needed for 80% Revenue",
-            f"{products_80_revenue} "
-            f"({products_80_revenue / len(product) * 100:.2f}%)"
-        ],
-        [
-            "Products Needed for 80% Profit",
-            f"{products_80_profit} "
-            f"({products_80_profit / len(product) * 100:.2f}%)"
-        ]
-    ]
-
-    table = Table(
-        pareto_data,
-        colWidths=[350, 250],
-        repeatRows=1
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("PADDING", (0, 0), (-1, -1), 6)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # REGIONAL PERFORMANCE
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "8. Regional Performance",
-            heading_style
-        )
-    )
-
-    region_table = [
-        ["Region", "Sales", "Gross Profit"]
-    ]
-
-    for _, row in region.iterrows():
-
-        region_table.append([
-            str(row["Region"]),
-            f"${row['Sales']:,.2f}",
-            f"${row['Gross Profit']:,.2f}"
-        ])
-
-    table = Table(
-        region_table,
-        repeatRows=1,
-        colWidths=[200, 200, 200]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("PADDING", (0, 0), (-1, -1), 5)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # MONTHLY PERFORMANCE
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "9. Monthly Performance & Margin Volatility",
-            heading_style
-        )
-    )
-
-    monthly_table = [
-        [
-            "Month",
-            "Sales",
-            "Gross Profit",
-            "Cost",
-            "Margin %"
-        ]
-    ]
-
-    for _, row in monthly.iterrows():
-
-        monthly_table.append([
-            row["Order Date"].strftime("%b %Y"),
-            f"${row['Sales']:,.2f}",
-            f"${row['Gross Profit']:,.2f}",
-            f"${row['Cost']:,.2f}",
-            f"{row['Gross Margin (%)']:.2f}%"
-        ])
-
-    table = Table(
-        monthly_table,
-        repeatRows=1,
-        colWidths=[120, 150, 150, 150, 120]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ("PADDING", (0, 0), (-1, -1), 4)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(Spacer(1, 15))
-
-    story.append(
-        Paragraph(
-            f"Margin Volatility: {margin_volatility:.2f}%",
-            normal_style
-        )
-    )
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # FACTORY INFORMATION
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "10. Factory & Product Supply Information",
-            heading_style
-        )
-    )
-
-    factory_table = [
-        ["Factory", "Latitude", "Longitude"]
-    ]
-
-    for _, row in factory_data.iterrows():
-
-        factory_table.append([
-            str(row["Factory"]),
-            str(row["Latitude"]),
-            str(row["Longitude"])
-        ])
-
-    table = Table(
-        factory_table,
-        repeatRows=1,
-        colWidths=[300, 150, 150]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("PADDING", (0, 0), (-1, -1), 5)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(Spacer(1, 15))
-
-    story.append(
-        Paragraph(
-            "Product–Factory Correlation",
-            styles["Heading2"]
-        )
-    )
-
-    pf_table = [
-        ["Product", "Factory"]
-    ]
-
-    for _, row in product_factory.iterrows():
-
-        pf_table.append([
-            str(row["Product"])[:60],
-            str(row["Factory"])
-        ])
-
-    table = Table(
-        pf_table,
-        repeatRows=1,
-        colWidths=[400, 200]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ("PADDING", (0, 0), (-1, -1), 4)
-        ])
-    )
-
-    story.append(table)
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # SUMMARY
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "11. Summary & Recommendations",
-            heading_style
-        )
-    )
-
-    summary = [
-        f"Most profitable division: {most_profitable_division}",
-        f"Highest profit product: {highest_profit_product}",
-        f"Highest margin product: {highest_margin_product}",
-        f"Number of margin-risk products: {len(risk_products)}",
-        f"Margin volatility: {margin_volatility:.2f}%"
-    ]
-
-    for item in summary:
-
-        story.append(
-            Paragraph(
-                "• " + item,
-                normal_style
-            )
-        )
-
-        story.append(Spacer(1, 6))
-
-    story.append(Spacer(1, 10))
-
-    for i, recommendation in enumerate(
-        recommendations,
-        start=1
-    ):
-
-        story.append(
-            Paragraph(
-                f"<b>{i}. {recommendation}</b>",
-                normal_style
-            )
-        )
-
-        story.append(Spacer(1, 6))
-
-    story.append(PageBreak())
-
-    # -----------------------------------------------------
-    # METHODOLOGY
-    # -----------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "12. Methodology",
-            heading_style
-        )
-    )
-
-    methodology = [
-        "Validate sales and cost values.",
-        "Remove zero-sales records.",
-        "Remove invalid records.",
-        "Handle missing unit values.",
-        "Standardize product labels.",
-        "Standardize division labels.",
-        "Convert order dates to the correct date format.",
-        "Calculate Gross Margin.",
-        "Calculate Profit per Unit.",
-        "Calculate Revenue Contribution.",
-        "Calculate Profit Contribution.",
-        "Classify products according to sales and profit.",
-        "Analyze division performance.",
-        "Analyze cost structure and margin risks.",
-        "Perform revenue and profit Pareto analysis.",
-        "Analyze regional and state performance.",
-        "Measure monthly margin volatility.",
-        "Analyze factory-product relationships."
-    ]
-
-    for item in methodology:
-
-        story.append(
-            Paragraph(
-                "• " + item,
-                normal_style
-            )
-        )
-
-        story.append(Spacer(1, 5))
-
-    story.append(Spacer(1, 20))
-
-    story.append(
-        Paragraph(
-            "Nassau Candy Distributor Data Science Analysis "
-            "Completed Successfully.",
-            styles["Heading2"]
-        )
-    )
-
-    doc.build(story)
-
-    buffer.seek(0)
-
-    return buffer
-
-
-# =========================================================
-# DOWNLOAD PDF BUTTON
-# =========================================================
-
-st.markdown("---")
-
-st.subheader("📄 Export Dashboard")
-
-pdf_data = create_pdf_report()
-
-st.download_button(
-    label="📥 Download Dashboard as PDF",
-    data=pdf_data,
-    file_name="Nassau_Candy_Profitability_Dashboard.pdf",
-    mime="application/pdf"
+st.caption(
+    "Nassau Candy Distributor | Data Science Project"
 )
